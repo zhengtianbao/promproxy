@@ -1,0 +1,13 @@
+server:
+  port: 8080
+  max_concurrency: 100
+
+prometheus:
+  url: "http://localhost:9090"
+
+rules:
+  allowed_spaces:
+    - "production"
+    - "staging"
+    - "development"
+    - "testing"

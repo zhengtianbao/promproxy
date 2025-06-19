@@ -141,7 +141,7 @@ func (p *ProxyServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			<-p.semaphore
 			log.Printf("Processed request: Host: %s, Method: %s, Path: %s, Query: %s, duration: %s",
-				r.RemoteAddr, r.Method, r.URL.Path, r.URL.RawQuery, time.Since(start).String())
+				r.RemoteAddr, r.Method, r.URL.Path, r.URL.Query(), time.Since(start).String())
 		}()
 	case <-r.Context().Done():
 		http.Error(w, "Request cancelled", http.StatusRequestTimeout)

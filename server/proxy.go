@@ -209,25 +209,10 @@ func (p *ProxyServer) Start() error {
 
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprintf(w, "Query: %s\n\n", query)
-		fmt.Fprintf(w, "AST Type: %T\n\n", expr)
 
-		parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
-			fmt.Fprintf(w, "Node: %T\n", node)
-			if vs, ok := node.(*parser.VectorSelector); ok {
-				fmt.Fprintf(w, "  Metric: %s\n", vs.Name)
-				for _, matcher := range vs.LabelMatchers {
-					fmt.Fprintf(w, "  Label: %s %s %s\n", matcher.Name, matcher.Type, matcher.Value)
-				}
-			}
-			if ms, ok := node.(*parser.MatrixSelector); ok {
-				fmt.Fprintf(w, "  Range: %v\n", time.Duration(ms.Range))
-			}
-			if call, ok := node.(*parser.Call); ok {
-				fmt.Fprintf(w, "  Function: %s\n", call.Func.Name)
-			}
-			fmt.Fprintf(w, "\n")
-			return nil
-		})
+		fmt.Fprintf(w, "Simplified Expression Tree:\n")
+		fmt.Fprintf(w, strings.Repeat("=", 30) + "\n")
+		printExpressionTree(w, expr, 0)
 	})
 
 	addr := fmt.Sprintf(":%d", p.config.Server.Port)
@@ -237,4 +222,91 @@ func (p *ProxyServer) Start() error {
 	log.Printf("Allowed spaces: %v", p.config.Rules.AllowedSpaces)
 
 	return http.ListenAndServe(addr, mux)
+}
+
+func printExpressionTree(w http.ResponseWriter, expr parser.Expr, depth int) {
+	indent := strings.Repeat("  ", depth)
+	
+	switch e := expr.(type) {
+	case *parser.VectorSelector:
+		fmt.Fprintf(w, "%sVectorSelector: %s", indent, e.Name)
+		if len(e.LabelMatchers) > 0 {
+			fmt.Fprintf(w, "{")
+			for i, m := range e.LabelMatchers {
+				if i > 0 {
+					fmt.Fprintf(w, ", ")
+				}
+				fmt.Fprintf(w, "%s%s%q", m.Name, m.Type, m.Value)
+			}
+			fmt.Fprintf(w, "}")
+		}
+		fmt.Fprintf(w, "\n")
+		
+	case *parser.MatrixSelector:
+		fmt.Fprintf(w, "%sMatrixSelector[%v]\n", indent, time.Duration(e.Range))
+		if e.VectorSelector != nil {
+			printExpressionTree(w, e.VectorSelector, depth+1)
+		}
+		
+	case *parser.Call:
+		fmt.Fprintf(w, "%sCall: %s()\n", indent, e.Func.Name)
+		for _, arg := range e.Args {
+			printExpressionTree(w, arg, depth+1)
+		}
+		
+	case *parser.AggregateExpr:
+		groupInfo := ""
+		if len(e.Grouping) > 0 {
+			groupType := "by"
+			if e.Without {
+				groupType = "without"
+			}
+			groupInfo = fmt.Sprintf(" %s (%s)", groupType, strings.Join(e.Grouping, ", "))
+		}
+		fmt.Fprintf(w, "%sAggregateExpr: %s%s\n", indent, e.Op, groupInfo)
+		if e.Expr != nil {
+			printExpressionTree(w, e.Expr, depth+1)
+		}
+		if e.Param != nil {
+			printExpressionTree(w, e.Param, depth+1)
+		}
+		
+	case *parser.BinaryExpr:
+		fmt.Fprintf(w, "%sBinaryExpr: %s\n", indent, e.Op)
+		if e.LHS != nil {
+			fmt.Fprintf(w, "%s  LHS:\n", indent)
+			printExpressionTree(w, e.LHS, depth+2)
+		}
+		if e.RHS != nil {
+			fmt.Fprintf(w, "%s  RHS:\n", indent)
+			printExpressionTree(w, e.RHS, depth+2)
+		}
+		
+	case *parser.UnaryExpr:
+		fmt.Fprintf(w, "%sUnaryExpr: %s\n", indent, e.Op)
+		if e.Expr != nil {
+			printExpressionTree(w, e.Expr, depth+1)
+		}
+		
+	case *parser.ParenExpr:
+		fmt.Fprintf(w, "%sParenExpr\n", indent)
+		if e.Expr != nil {
+			printExpressionTree(w, e.Expr, depth+1)
+		}
+		
+	case *parser.NumberLiteral:
+		fmt.Fprintf(w, "%sNumberLiteral: %g\n", indent, e.Val)
+		
+	case *parser.StringLiteral:
+		fmt.Fprintf(w, "%sStringLiteral: %q\n", indent, e.Val)
+		
+	case *parser.SubqueryExpr:
+		fmt.Fprintf(w, "%sSubqueryExpr[%v:%v]\n", indent, time.Duration(e.Range), time.Duration(e.Step))
+		if e.Expr != nil {
+			printExpressionTree(w, e.Expr, depth+1)
+		}
+		
+	default:
+		fmt.Fprintf(w, "%s%T\n", indent, expr)
+	}
 }

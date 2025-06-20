@@ -30,6 +30,8 @@ func run() int {
 	middlewares := []middleware.Middleware{
 		middleware.NewLabelValidateMiddleware(config.Rules.AllowedSpaces),
 		middleware.NewTimeValidateMiddleware(),
+		middleware.NewFunctionValidateMiddleware(),
+		middleware.NewQueryRangeMiddleware(),
 	}
 	server.RegisterMiddlewares(middlewares...)
 	if err := server.Start(); err != nil {

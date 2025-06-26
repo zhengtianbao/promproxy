@@ -6,6 +6,7 @@ toolchain go1.23.3
 
 require (
 	github.com/prometheus/prometheus v0.304.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v2 v2.4.0
 )
 

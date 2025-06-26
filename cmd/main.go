@@ -7,6 +7,7 @@ import (
 	"github.com/zhengtianbao/promproxy/config"
 	"github.com/zhengtianbao/promproxy/middleware"
 	"github.com/zhengtianbao/promproxy/server"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
@@ -18,6 +19,14 @@ func run() int {
 	if len(os.Args) > 1 {
 		configFile = os.Args[1]
 	}
+
+	log.SetOutput(&lumberjack.Logger{
+    Filename:   "promproxy.log",
+    MaxSize:    100,
+    MaxBackups: 3,
+    MaxAge:     28,
+    Compress:   true,
+})
 
 	log.Printf("config: %s", configFile)
 	config, err := config.LoadFile(configFile)

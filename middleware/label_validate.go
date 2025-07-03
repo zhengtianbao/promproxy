@@ -3,7 +3,9 @@ package middleware
 import (
 	"fmt"
 	"slices"
+	"strings"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
@@ -22,8 +24,13 @@ func (m *LabelValidateMiddleware) Process(ctx *RequestContext) error {
 }
 
 func (m *LabelValidateMiddleware) validateSpaceLabel(ctx *RequestContext) error {
-	var hasValidSpace bool
-	var foundSpaces []string
+	type foundSpace struct {
+		spaceValue string
+		matcher    string
+		valid      bool
+	}
+
+	var foundSpaces []foundSpace
 
 	// 遍历AST查找所有的VectorSelector
 	parser.Inspect(ctx.ParsedAST, func(node parser.Node, path []parser.Node) error {
@@ -32,14 +39,35 @@ func (m *LabelValidateMiddleware) validateSpaceLabel(ctx *RequestContext) error 
 			for _, matcher := range vs.LabelMatchers {
 				if matcher.Name == "space" {
 					spaceFound = true
-					foundSpaces = append(foundSpaces, matcher.Value)
 
-					hasValidSpace = slices.Contains(m.AllowedSpaces, matcher.Value)
+					if matcher.Type == labels.MatchEqual {
+						hasValidSpace := slices.Contains(m.AllowedSpaces, matcher.Value)
+						foundSpaces = append(foundSpaces, foundSpace{
+							spaceValue: matcher.Value,
+							matcher:    matcher.Type.String(),
+							valid:      hasValidSpace})
+					} else if matcher.Type == labels.MatchRegexp {
+						values := strings.Split(matcher.Value, "|")
+						allVaild := true
+						for _, value := range values {
+							if !slices.Contains(m.AllowedSpaces, value) {
+								allVaild = false
+								break
+							}
+						}
+						foundSpaces = append(foundSpaces, foundSpace{
+							spaceValue: matcher.Value,
+							matcher:    matcher.Type.String(),
+							valid:      allVaild})
+					}
 				}
 			}
 
 			if !spaceFound {
-				foundSpaces = append(foundSpaces, "<missing>")
+				foundSpaces = append(foundSpaces, foundSpace{
+					spaceValue: "<missing>",
+					matcher:    " ",
+					valid:      false})
 			}
 		}
 		return nil
@@ -49,15 +77,13 @@ func (m *LabelValidateMiddleware) validateSpaceLabel(ctx *RequestContext) error 
 		return fmt.Errorf("query must contain at least one metric with a 'space' label")
 	}
 
-	// 检查是否有缺失space标签的情况
-	for _, space := range foundSpaces {
-		if space == "<missing>" {
+	for _, s := range foundSpaces {
+		if s.spaceValue == "<missing>" {
 			return fmt.Errorf("all metrics in the query must have a 'space' label")
 		}
-	}
-
-	if !hasValidSpace {
-		return fmt.Errorf("space values %v are not allowed", foundSpaces)
+		if !s.valid {
+			return fmt.Errorf("space values %v with matcher %v are not allowed", s.spaceValue, s.matcher)
+		}
 	}
 
 	return nil
